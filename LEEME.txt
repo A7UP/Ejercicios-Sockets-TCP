@@ -1,0 +1,41 @@
+import java.io.*;
+import java.net.*;
+import java.util.concurrent.*;
+
+/** Servidor JSMS completo: ThreadPool + salas + timeouts + Graceful Shutdown. */
+public class JSMSServer {
+    private static final int PUERTO = 8080;
+    private static final int MAX_HILOS = 10;
+
+    private final ExecutorService threadPool = Executors.newFixedThreadPool(MAX_HILOS);
+    private final RoomManager rooms = new RoomManager();
+    private ServerSocket serverSocket;
+
+    public void iniciar() {
+        // Ejercicio 5: Shutdown Hook que notifica a los clientes antes de apagar
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("\nIniciando apagado controlado del servidor...");
+            rooms.notificarATodos("SERVER Apagando servidor. Hasta luego.");
+            try { if (serverSocket != null) serverSocket.close(); } catch (IOException ignored) {}
+            for (ClientHandler h : rooms.usuariosConectados()) h.cerrar();
+            threadPool.shutdown();
+            try {
+                if (!threadPool.awaitTermination(3, TimeUnit.SECONDS)) threadPool.shutdownNow();
+            } catch (InterruptedException e) { threadPool.shutdownNow(); }
+        }));
+
+        try {
+            serverSocket = new ServerSocket(PUERTO);
+            System.out.println("Servidor JSMS escuchando en el puerto " + PUERTO);
+            while (!serverSocket.isClosed()) {
+                Socket cliente = serverSocket.accept();
+                threadPool.execute(new ClientHandler(cliente, rooms));
+            }
+        } catch (IOException e) {
+            if (serverSocket != null && !serverSocket.isClosed())
+                System.err.println("Error en bucle principal: " + e.getMessage());
+        }
+    }
+
+    public static void main(String[] args) { new JSMSServer().iniciar(); }
+}
